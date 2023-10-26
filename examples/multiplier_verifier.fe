@@ -1,3 +1,6 @@
+// This implementation tests verifying the proof that we are able to factor
+// the number 33 without revealing its inputs (3 * 11)
+
 use std::buf::{MemoryBuffer, MemoryBufferWriter, MemoryBufferReader}
 use std::precompiles
 
@@ -189,9 +192,6 @@ pub fn verifyProof(a: Array<u256, 2>,
     
     return res
 }
-
-// This tests verify the proof that we are able to factor
-// the number 33 without revealing its inputs (3 * 11)
 
 #test
 fn test_verify_proof() {
