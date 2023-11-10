@@ -1,6 +1,22 @@
 use std::buf::{MemoryBuffer, MemoryBufferWriter, MemoryBufferReader}
 use std::precompiles
 
+contract Main {
+    pub fn verify(self) -> u256 {
+        let verification: bool = verifyProof(
+        a: [0x28930e0aeb50e7e3b5f9a54a6abdce99978e00701914dfd4d87f8dc5ea9e1d02, 0x02c1e99774e679c144aceac4e9fdbc67dc858533d9f49c5933939c89010131b7],
+        b: [[0x0684d8357689fb95e886a8251db0e142ffdda8032e314750455b9f5ff13159ca, 0x26189ebc171412019704e808c432062721db66c4a22635f20ed422a2147ad5bf], [0x005d309291fd34bef6248c17779114907b6d912a5a02ddae46d902dbd05e2e1c, 0x01673b4a2e94569e28e23a9ae808b9f92b4d21beca07522f79d16ec419a6e85c]],
+        c: [0x25170145c09315e2df3c93d155b39df35434469607b0121a16125224190a596a, 0x05467081343913d54408694735a8d149578e7cbb3168f2b4283a7fe2861a7a42],
+        input: [0x0000000000000000000000000000000000000000000000000000000000000021])
+        
+        if(verification == true) {
+            return 1
+        } else {
+            return 0
+        }
+    }
+}
+
 struct G1Point {
     pub x: u256
     pub y: u256
@@ -50,8 +66,7 @@ struct VerifyingKey {
     pub beta2: G2Point
     pub gamma2: G2Point
     pub delta2: G2Point
-    // IC'yi bu şekilde dinamik alacağız, ve JS ile dolduracağız?
-    pub IC: Array<G1Point, <%=IC.length%>>
+    pub IC: Array<G1Point, 2>
 }
 
 struct Proof {
@@ -62,42 +77,42 @@ struct Proof {
 
 fn verifyingKey() -> VerifyingKey {
     let alfa1: G1Point = G1Point(
-            x: <%=vk_alpha_1[0]%>,
-            y: <%=vk_alpha_1[1]%>
+            x: 18986994054831033570197018374507745079604334824038474376810821382341658341358,
+            y: 9857034825708937828129722307559364555144967863984840417006236609097843967147
         )
     
     let beta2: G2Point = G2Point(
-            x: [<%=vk_beta_2[0][1]%>,
-             <%=vk_beta_2[0][0]%>],
-            y: [<%=vk_beta_2[1][1]%>,
-             <%=vk_beta_2[1][0]%>]
+            x: [9138224228407402916103338031673805059436445969293455575712717090470338056266,
+             18390029660978007887012397144274200115548124992262045309168725395291020532646],
+            y: [13521623794085633987820957758529862860973247929283590310564032250223240671848,
+             3861004002262797311682051645188776069221901493726904234127961112799581415639]
         )
 
     let gamma2: G2Point = G2Point(
-            x: [<%=vk_gamma_2[0][1]%>,
-             <%=vk_gamma_2[0][0]%>],
-            y: [<%=vk_gamma_2[1][1]%>,
-             <%=vk_gamma_2[1][0]%>]
+            x: [11559732032986387107991004021392285783925812861821192530917403151452391805634,
+             10857046999023057135944570762232829481370756359578518086990519993285655852781],
+            y: [4082367875863433681332203403145435568316851327593401208105741076214120093531,
+             8495653923123431417604973247489272438418190587263600148770280649306958101930]
         )
 
     let delta2: G2Point = G2Point(
-            x: [<%=vk_delta_2[0][1]%>,
-             <%=vk_delta_2[0][0]%>],
-            y: [<%=vk_delta_2[1][1]%>,
-             <%=vk_delta_2[1][0]%>]
+            x: [3810475614507152687978045945018363916901751186873297176897861851851025646174,
+             11517822973057293310299905404808144348048624735019551898183051528663733638390],
+            y: [7205787144229011189765531580637096098035200993493430523391610777645930427053,
+             18901678484212115678597129685298885730350402277813795965474832351751410499421]
         )
 
-    let IC: Array<G1Point, <%=IC.length%>> = [
-    <% for (let i=0; i<IC.length - 1; i++) { %>
-        G1Point( 
-            x: <%=IC[i][0]%>,
-            y: <%=IC[i][1]%>
-        ),                                   
-        <% } %>
+    let IC: Array<G1Point, 2> = [
     
         G1Point( 
-            x: <%=IC[IC.length - 1][0]%>,
-            y: <%=IC[IC.length - 1][1]%>
+            x: 67521893739652156791009141370073344821154292280368295170345470354897934196,
+            y: 17040597570089860980787757123222393819903832599488360597826421841263128988811
+        ),                                   
+        
+    
+        G1Point( 
+            x: 6621938124027639260974226744038109301855429178070752528844179929793898435285,
+            y: 2291636765942087387769041560925446553420342985960064087254817725377189124295
         )
     ]
 
@@ -115,7 +130,7 @@ pub fn pairing(a1: G1Point, a2: G2Point,
                c1: G1Point, c2: G2Point,
                d1: G1Point, d2: G2Point) -> bool {
 
-    let input_len: u256 = 32 * 24
+    let input_len: u256 = 32 * 24 // all writers work now
     let mut buf: MemoryBuffer = MemoryBuffer::new(len: input_len) 
     let mut writer: MemoryBufferWriter = buf.writer()
 
@@ -152,7 +167,7 @@ pub fn pairing(a1: G1Point, a2: G2Point,
 pub fn verifyProof(a: Array<u256, 2>,
                    b: Array<Array<u256, 2>, 2>,
                    c: Array<u256, 2>,
-                   input: Array<u256, <%=IC.length-1%>>) -> bool {
+                   input: Array<u256, 1>) -> bool {
     
     let proof: Proof = Proof(
         A: G1Point(x: a[0], y: a[1]),
@@ -176,6 +191,7 @@ pub fn verifyProof(a: Array<u256, 2>,
     }
 
     let neg_proofA: G1Point = negate(p: proof.A)
+
     let res: bool = pairing(
         a1: neg_proofA,
         a2: proof.B,
@@ -189,3 +205,19 @@ pub fn verifyProof(a: Array<u256, 2>,
     
     return res
 }
+
+// This tests verify the proof that we are able to factor
+// the number 33 without revealing its inputs (3 * 11)
+
+#test
+fn test_verify_proof() {
+    let verification: bool = verifyProof(
+        a: [0x28930e0aeb50e7e3b5f9a54a6abdce99978e00701914dfd4d87f8dc5ea9e1d02, 0x02c1e99774e679c144aceac4e9fdbc67dc858533d9f49c5933939c89010131b7],
+        b: [[0x0684d8357689fb95e886a8251db0e142ffdda8032e314750455b9f5ff13159ca, 0x26189ebc171412019704e808c432062721db66c4a22635f20ed422a2147ad5bf], [0x005d309291fd34bef6248c17779114907b6d912a5a02ddae46d902dbd05e2e1c, 0x01673b4a2e94569e28e23a9ae808b9f92b4d21beca07522f79d16ec419a6e85c]],
+        c: [0x25170145c09315e2df3c93d155b39df35434469607b0121a16125224190a596a, 0x05467081343913d54408694735a8d149578e7cbb3168f2b4283a7fe2861a7a42],
+        input: [0x0000000000000000000000000000000000000000000000000000000000000021]
+    )
+
+    assert verification == true
+}
+
