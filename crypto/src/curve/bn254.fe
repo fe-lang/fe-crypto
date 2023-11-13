@@ -1,12 +1,12 @@
 use std::buf::{MemoryBuffer, MemoryBufferWriter, MemoryBufferReader}
 use std::precompiles
 
-struct G1Point {
+pub struct G1Point {
     pub x: u256
     pub y: u256
 }
 
-struct G2Point {
+pub struct G2Point {
     pub x: Array<u256, 2>
     pub y: Array<u256, 2>
 }
@@ -39,6 +39,10 @@ pub fn add(p: G1Point, q: G1Point) -> G1Point {
     return G1Point(x: res.item0, y: res.item1)
 }
 
+pub fn double(p: G1Point) -> G1Point {
+    return add(p: p, q: p)
+}
+
 pub fn scalar_mul(p: G1Point, r: u256) -> G1Point {
     let res: (u256, u256) = precompiles::ec_mul(x: p.x, y: p.y, s: r)
     return G1Point(x: res.item0, y: res.item1)
@@ -50,4 +54,87 @@ pub fn pairing(buf: MemoryBuffer) -> bool {
     let mut reader: MemoryBufferReader = output_buf.reader()
     precompiles::Precompile::EcPairing.call(input: buf, output: output_buf)
     return reader.read_u256() == 1
+}
+
+// pairs a G2Point and a G1Point
+pub fn pairing_g2_g1(q: G2Point, p: G1Point) -> u256 {
+    let input_len: u256 = 32 * 6 // all writers will work
+
+    let mut input_buf: MemoryBuffer = MemoryBuffer::new(len: input_len)
+    let mut writer: MemoryBufferWriter = input_buf.writer()
+
+    writer.write(value: p.x)
+    writer.write(value: p.y)
+    writer.write(value: q.x[0])
+    writer.write(value: q.x[1])
+    writer.write(value: q.y[0])
+    writer.write(value: q.y[1])
+
+    let mut output_buf: MemoryBuffer = MemoryBuffer::new(len: input_len)
+    let mut reader: MemoryBufferReader = output_buf.reader()
+    
+    precompiles::Precompile::EcPairing.call(input: input_buf, output: output_buf)
+    return reader.read_u256()
+}
+
+// O + O = O
+#test
+fn test_bn254_g1_add1() {
+    let p: G1Point = G1Point(x: 0, y:0);
+    let q: G1Point = G1Point(x: 0, y:0);
+    
+    let res: G1Point = add(p: p, q: q)
+    
+    assert res.x == 0
+    assert res.y == 0
+}
+
+// O + G = G
+#test
+fn test_bn254_g1_add2() {
+    let p: G1Point = G1Point(x: 0, y:0)
+    let generator: G1Point = G1()
+    let res: G1Point = add(p: p, q: generator)
+    
+    assert res.x == generator.x
+    assert res.y == generator.y
+}
+
+// G + G = 2*G
+#test
+fn test_g1_double() {
+    let generator: G1Point = G1()
+    let add_generators: G1Point = add(p: generator, q: generator)
+    let double_generator: G1Point = double(p: generator)
+
+    assert add_generators.x == double_generator.x
+    assert add_generators.y == double_generator.y
+}
+
+// 2*G + G = 3*G
+#test
+fn test_bn254_g1_mul1() {
+    let generator: G1Point = G1()
+    let two_generator: G1Point = double(p: generator)
+    let lhs: G1Point = add(p: generator, q: two_generator)
+    let rhs: G1Point = scalar_mul(p: generator, r: 3)
+    
+    assert lhs.x == rhs.x
+    assert lhs.y == rhs.y
+}
+
+// e(P, Q + R) = e(P, Q) * e(P, R)
+#test
+fn test_bilinearity() {
+    let g2: G2Point = G2()
+    let g1: G1Point = G1()
+
+    let g1_double: G1Point = double(p: g1)
+    let p_add_q: G1Point = add(p: g1, q: g1_double)
+    let lhs: u256 = pairing_g2_g1(q: g2, p: p_add_q)
+    let rhs_1: u256 = pairing_g2_g1(q: g2, p: g1)
+    let rhs_2: u256 = pairing_g2_g1(q: g2, p: g1_double)
+    let rhs: u256 = rhs_1 * rhs_2
+    
+    assert lhs == rhs
 }

@@ -2,5 +2,5 @@ name = "verifiers"
 version = "1.0"
 
 [dependencies]
-# bn254 = "../crypto/src/curve/"
+crypto = "../crypto"
 # my_lib = { path = "../my_lib", version = "1.0" }
