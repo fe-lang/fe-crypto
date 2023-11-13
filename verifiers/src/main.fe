@@ -125,7 +125,7 @@ fn verifyingKey() -> VerifyingKey {
     )
 }
 
-pub fn pairing(a1: G1Point, a2: G2Point,
+pub fn pairing(a1: bn254::G1Point, a2: G2Point,
                b1: G1Point, b2: G2Point,
                c1: G1Point, c2: G2Point,
                d1: G1Point, d2: G2Point) -> bool {
