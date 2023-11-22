@@ -1,0 +1,6 @@
+name = "verifiers"
+version = "1.0"
+
+[dependencies]
+crypto = "../crypto"
+# my_lib = { path = "../my_lib", version = "1.0" }

@@ -1,0 +1,147 @@
+use std::buf::{MemoryBuffer, MemoryBufferWriter, MemoryBufferReader}
+use std::precompiles
+use crypto::curve::bn254::{G1Point, G2Point, G1, G2, negate, add, scalar_mul}
+
+struct VerifyingKey {
+    pub alfa1: G1Point
+    pub beta2: G2Point
+    pub gamma2: G2Point
+    pub delta2: G2Point
+    pub IC: Array<G1Point, <%=IC.length%>>
+}
+
+struct Proof {
+    pub A: G1Point
+    pub B: G2Point
+    pub C: G1Point
+}
+
+fn verifyingKey() -> VerifyingKey {
+    let alfa1: G1Point = G1Point(
+            x: <%=vk_alpha_1[0]%>,
+            y: <%=vk_alpha_1[1]%>
+        )
+    
+    let beta2: G2Point = G2Point(
+            x: [<%=vk_beta_2[0][1]%>,
+             <%=vk_beta_2[0][0]%>],
+            y: [<%=vk_beta_2[1][1]%>,
+             <%=vk_beta_2[1][0]%>]
+        )
+
+    let gamma2: G2Point = G2Point(
+            x: [<%=vk_gamma_2[0][1]%>,
+             <%=vk_gamma_2[0][0]%>],
+            y: [<%=vk_gamma_2[1][1]%>,
+             <%=vk_gamma_2[1][0]%>]
+        )
+
+    let delta2: G2Point = G2Point(
+            x: [<%=vk_delta_2[0][1]%>,
+             <%=vk_delta_2[0][0]%>],
+            y: [<%=vk_delta_2[1][1]%>,
+             <%=vk_delta_2[1][0]%>]
+        )
+
+    let IC: Array<G1Point, <%=IC.length%>> = [
+    <% for (let i=0; i<IC.length - 1; i++) { %>
+        G1Point( 
+            x: <%=IC[i][0]%>,
+            y: <%=IC[i][1]%>
+        ),                                   
+        <% } %>
+    
+        G1Point( 
+            x: <%=IC[IC.length - 1][0]%>,
+            y: <%=IC[IC.length - 1][1]%>
+        )
+    ]
+
+    return VerifyingKey(
+        alfa1: alfa1,
+        beta2: beta2,
+        gamma2: gamma2,
+        delta2: delta2,
+        IC: IC
+    )
+}
+
+pub fn pairing(a1: G1Point, a2: G2Point,
+               b1: G1Point, b2: G2Point,
+               c1: G1Point, c2: G2Point,
+               d1: G1Point, d2: G2Point) -> bool {
+
+    let input_len: u256 = 32 * 24
+    let mut buf: MemoryBuffer = MemoryBuffer::new(len: input_len) 
+    let mut writer: MemoryBufferWriter = buf.writer()
+
+    writer.write(value: a1.x)
+    writer.write(value: a1.y)
+    writer.write(value: a2.x[0])
+    writer.write(value: a2.x[1])
+    writer.write(value: a2.y[0])
+    writer.write(value: a2.y[1])
+    writer.write(value: b1.x)
+    writer.write(value: b1.y)
+    writer.write(value: b2.x[0])
+    writer.write(value: b2.x[1])
+    writer.write(value: b2.y[0])
+    writer.write(value: b2.y[1])
+    writer.write(value: c1.x)
+    writer.write(value: c1.y)
+    writer.write(value: c2.x[0])
+    writer.write(value: c2.x[1])
+    writer.write(value: c2.y[0])
+    writer.write(value: c2.y[1])
+    writer.write(value: d1.x)
+    writer.write(value: d1.y)
+    writer.write(value: d2.x[0])
+    writer.write(value: d2.x[1])
+    writer.write(value: d2.y[0])
+    writer.write(value: d2.y[1])
+        
+    let res: bool = precompiles::ec_pairing(buf: buf)
+
+    return res
+}
+
+pub fn verifyProof(a: Array<u256, 2>,
+                   b: Array<Array<u256, 2>, 2>,
+                   c: Array<u256, 2>,
+                   input: Array<u256, <%=IC.length-1%>>) -> bool {
+    
+    let proof: Proof = Proof(
+        A: G1Point(x: a[0], y: a[1]),
+        B: G2Point(x: [b[0][0], b[0][1]], y: [b[1][0], b[1][1]]),
+        C: G1Point(x: c[0], y: c[1]))
+       
+    let vk: VerifyingKey = verifyingKey()
+
+    let snark_scalar_field: u256 = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+    
+    let mut vk_x: G1Point = G1Point(x: 0, y: 0)
+    vk_x = add(p: vk_x, q: vk.IC[0])
+
+    let mut i: u256 = 0
+
+    while i < 1 {
+        assert input[i] < snark_scalar_field
+        let mul_temp: G1Point = scalar_mul(p: vk.IC[i+1], r: input[i])
+        vk_x = add(p: vk_x, q: mul_temp)
+        i += 1
+    }
+
+    let neg_proofA: G1Point = negate(p: proof.A)
+    let res: bool = pairing(
+        a1: neg_proofA,
+        a2: proof.B,
+        b1: vk.alfa1,
+        b2: vk.beta2,
+        c1: vk_x,
+        c2: vk.gamma2,
+        d1: proof.C,
+        d2: vk.delta2
+    )   
+    
+    return res
+} 
