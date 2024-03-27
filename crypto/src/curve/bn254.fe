@@ -25,11 +25,9 @@ pub fn G2() -> G2Point {
 }
 
 pub fn negate(p: G1Point) -> G1Point {
-    let mut q: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
-    if (p.x == 0){
-        if(p.y == 0) {
-            return G1Point(x: 0, y: 0)
-        }
+    let q: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    if(p.y%q == 0) {
+        return G1Point(x: p.x, y: 0)
     }
     return G1Point(x: p.x, y: q - (p.y % q))
 }
@@ -52,7 +50,7 @@ pub fn scalar_mul(p: G1Point, r: u256) -> G1Point {
 pub fn pairing(buf: MemoryBuffer) -> bool {
     let mut output_buf: MemoryBuffer = MemoryBuffer::new(len: 32)
     let mut reader: MemoryBufferReader = output_buf.reader()
-    precompiles::Precompile::EcPairing.call(input: buf, output: output_buf)
+    precompiles::Precompile::EcPairing.call(input_buf: buf, output_buf: output_buf)
     return reader.read_u256() == 1
 }
 
@@ -73,7 +71,7 @@ pub fn pairing_g2_g1(q: G2Point, p: G1Point) -> u256 {
     let mut output_buf: MemoryBuffer = MemoryBuffer::new(len: input_len)
     let mut reader: MemoryBufferReader = output_buf.reader()
     
-    precompiles::Precompile::EcPairing.call(input: input_buf, output: output_buf)
+    precompiles::Precompile::EcPairing.call(input_buf: input_buf, output_buf: output_buf)
     return reader.read_u256()
 }
 
@@ -98,6 +96,16 @@ fn test_bn254_g1_add2() {
     
     assert res.x == generator.x
     assert res.y == generator.y
+}
+
+// G + (-G) = 0
+#test
+fn test_bn254_g1_add3() {
+    let generator: G1Point = G1()
+    let res: G1Point = add(p: generator, q: negate(p: generator))
+    
+    assert res.x == 0
+    assert res.y == 0
 }
 
 // G + G = 2*G
