@@ -1,6 +1,70 @@
 use std::buf::{MemoryBuffer, MemoryBufferWriter, MemoryBufferReader}
 use std::precompiles
 
+pub fn Fp_exp(b: u256, e: u256) -> u256 {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+
+    let mut b_buf: MemoryBuffer = MemoryBuffer::new(len: 32)
+    let mut b_writer: MemoryBufferWriter = b_buf.writer()
+    b_writer.write(value: b)
+    let mut e_buf: MemoryBuffer = MemoryBuffer::new(len: 32)
+    let mut e_writer: MemoryBufferWriter = e_buf.writer()
+    e_writer.write(value: e)
+    let mut p_buf: MemoryBuffer = MemoryBuffer::new(len: 32)
+    let mut p_writer: MemoryBufferWriter = p_buf.writer()
+    p_writer.write(value: p)
+
+    let mut result: MemoryBufferReader = precompiles::mod_exp(b_size: 32, e_size: 32, m_size: 32,
+                                b: b_buf, e: e_buf, m: p_buf,
+                                ).reader()
+    return result.read_u256()
+}
+
+pub fn Fp_times(x: u256, y: u256) -> u256 {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let four_times: u256 = Fp_exp(b: x%p + y%p,e: 2) + p - Fp_exp(b: x%p + p - y%p,e: 2)
+    return ((four_times + p*(four_times%4))/4)%p //works since p=3 (mod 4)
+}
+
+pub fn Fq_eq(x: Array<u256, 2>, y: Array<u256, 2>) -> bool {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    return (x[0]%p == y[0]%p) and (x[1]%p == y[1]%p)
+}
+
+pub fn Fq_add(x: Array<u256, 2>, y: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    return [(x[0]%p + y[0]%p) % p, (x[1]%p + y[1]%p) % p]
+}
+
+pub fn Fq_sub(x: Array<u256, 2>, y: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    return [(x[0]%p + p - y[0]%p) % p, (x[1]%p + p - y[1]%p) % p]
+}
+
+pub fn Fq_times(x: Array<u256, 2>, y: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let z0: u256 = Fp_times(x: x[1],y: y[1])
+    let nz2: u256 = p - Fp_times(x: x[0],y: y[0])
+    let z1: u256 = (Fp_times(x: x[0]%p + x[1]%p, y: y[0]%p + y[1]%p) + p - z0 + nz2)%p 
+    return [z1, (z0 + nz2) % p]
+}
+
+pub fn Fq_square(x: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let z0: u256 = Fp_exp(b: x[1],e: 2)
+    let z2: u256 = Fp_exp(b: x[0],e: 2)
+    let z1: u256 = Fp_times(x: x[0], y: x[1]) 
+    return [(z1 + z1)%p, (z0 + p - z2) % p]
+}
+
+pub fn Fq_inv(x: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let nm: u256 = Fp_exp(b: x[0],e: 2) + Fp_exp(b: x[1],e: 2)
+    assert nm != 0, "cannot divide by 0"
+    let inv_nm: u256 = Fp_exp(b: nm, e: p - 2)
+    return [Fp_times(x: p - x[0]%p, y: inv_nm), Fp_times(x: x[1], y: inv_nm)]
+}
+
 pub struct G1Point {
     pub x: u256
     pub y: u256
@@ -45,6 +109,93 @@ pub fn scalar_mul(p: G1Point, r: u256) -> G1Point {
     let res: (u256, u256) = precompiles::ec_mul(x: p.x, y: p.y, s: r)
     return G1Point(x: res.item0, y: res.item1)
 }
+
+pub fn on_G2(p: G2Point) -> bool {
+    if(p.x[0] == 0 and p.x[1] == 0 and p.y[0] == 0 and p.y[1] == 0) {
+        return true
+    }
+    let B: Array<u256, 2> = [266929791119991161246907387137283842545076965332900288569378510910307636690,
+    19485874751759354771024239261021720505790618469301721065564631296452457478373]
+    let x_cubed: Array<u256, 2> = Fq_times(x: Fq_square(x: p.x), y: p.x)
+    return Fq_eq(x: Fq_square(x: p.y), y: Fq_add(x: x_cubed, y: B))
+}
+
+pub fn G2_negate(p: G2Point) -> G2Point {
+    let q: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    if(Fq_eq(x: p.y, y: [0,0])) {
+        return G2Point(x: p.x, y: [0,0])
+    }
+    return G2Point(x: p.x, y: [(q - (p.y[0] % q))%q, (q - (p.y[1] % q))%q])
+}
+
+pub fn G2_double(p: G2Point) -> G2Point {
+    let P: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    if(p.y[0] == 0) {
+        if(p.y[1] == 0) {
+           return G2Point(x: [0,0], y: [0,0])
+        }
+    }
+    let B: Array<u256, 2> = [266929791119991161246907387137283842545076965332900288569378510910307636690,
+    19485874751759354771024239261021720505790618469301721065564631296452457478373]
+    let neg2B: Array<u256, 2> = [21354383289599292899752590970982707403606157226632023085550280872824610935203,
+    4804736240159840902444332968471109165811385375992205194248813196385537460420]
+    let two_y_inv: Array<u256, 2> = Fq_inv(x: Fq_add(x: p.y, y: p.y))
+    let x_sq: Array<u256, 2> = Fq_square(x: p.x)
+    let x_cubed: Array<u256, 2> = Fq_times(x: x_sq, y: p.x)
+    assert Fq_eq(x: Fq_square(x: p.y), y: Fq_add(x: x_cubed, y: B)), "point not on curve"
+    let slope: Array<u256, 2> = Fq_times(x: [3*x_sq[0],3*x_sq[1]], y: two_y_inv)
+    let x_out: Array<u256, 2> = Fq_add(x: Fq_square(x: slope),
+                                       y: [2*(P-(p.x[0]%P)), 2*(P-(p.x[1]%P))])
+    let y_out: Array<u256, 2> = Fq_sub(x: Fq_times(x: Fq_add(x: x_cubed, y: neg2B), y: two_y_inv),
+                                       y: Fq_times(x: slope, y: x_out))
+    return G2Point(x: x_out, y: y_out)
+}
+
+// WARNING: code isn't fixed time
+pub fn G2_add(p: G2Point, q: G2Point) -> G2Point {
+    if(p.x[0] == 0 and p.x[1] == 0 and p.y[0] == 0 and p.y[1] == 0) {
+        return q
+    }
+    if(q.x[0] == 0 and q.x[1] == 0 and q.y[0] == 0 and q.y[1] == 0) {
+        return p
+    }
+    assert on_G2(p: p), "point not on curve"
+    assert on_G2(p: q), "point not on curve"
+    if(Fq_eq(x: p.x, y: q.x)) {
+        if(Fq_eq(x: Fq_add(x: p.y, y: q.y),y: [0,0])) {
+            return G2Point(x: [0,0], y: [0,0])
+        }
+        //assert Fq_eq(x: p.y, y: q.y), "point not on curve"
+        return G2_double(p: p)
+    }
+    let x_diff_inv: Array<u256, 2> = Fq_inv(x: Fq_sub(x: q.x, y: p.x))
+    let nslope: Array<u256, 2> = Fq_times(x: Fq_sub(x: p.y, y: q.y), y: x_diff_inv)
+    let x_out: Array<u256, 2> = Fq_sub(x: Fq_square(x: nslope), y: Fq_add(x: p.x, y: q.x))
+    let cross_prod: Array<u256, 2> = Fq_sub(x: Fq_times(x: p.x, y: q.y),
+                                            y: Fq_times(x: p.y, y: q.x))
+    let y_out: Array<u256, 2> = Fq_add(x: Fq_times(x: nslope, y: x_out),
+                                       y: Fq_times(x: x_diff_inv, y: cross_prod))
+    return G2Point(x: x_out, y: y_out)
+}
+
+// WARNING: code isn't fixed time
+pub fn G2_scalar_mul(p: G2Point, r: u256) -> G2Point {
+    let mut q: G2Point = p;
+    let mut ans: G2Point = G2Point(x: [0,0], y: [0,0])
+    let mut ind: u256 = r;
+    while true {
+        if(ind & 1 == 1) {
+            ans = G2_add(p: ans, q: q)
+        }
+        ind >>= 1
+        if(ind == 0) {
+            break
+        }
+        q = G2_double(p: q)
+    }
+    return ans
+}
+
 
 // This function will improved after Dynamic Arrays
 pub fn pairing(buf: MemoryBuffer) -> bool {
@@ -108,4 +259,103 @@ fn test_bn254_g1_mul1() {
     
     assert lhs.x == rhs.x
     assert lhs.y == rhs.y
+}
+
+#test
+fn test_Fp_exp() {
+    let x: u256 = G2().x[1]
+    let sq: u256 = Fp_exp(b: x, e: 2)
+    assert sq == 19174692470794073501570615532739633251048553737626673800995753633084288986374
+}
+
+#test
+fn test_Fp_times() {
+    let x: Array<u256, 2> = G2().x
+    let prod: u256 = Fp_times(x: x[0], y: x[1])
+    assert prod == 918692451702308434640184054528912234952016508950970653484110815618164541583
+}
+
+#test
+fn test_Fq_square() {
+    let x: Array<u256, 2> = G2().x
+    let sq: Array<u256, 2> = Fq_square(x: x)
+    assert sq[1] == 21740980388926906057426892996120422348616989628855161897682971020692097960281
+    assert sq[0] == 1837384903404616869280368109057824469904033017901941306968221631236329083166
+}
+
+#test
+fn test_Fq_inv() {
+    let x: Array<u256, 2> = G2().x
+    let inv: Array<u256, 2> = Fq_inv(x: x)
+    let res: Array<u256, 2> = Fq_times(x: x, y: inv)
+    assert res[1] == 1
+    assert res[0] == 0
+}
+
+// O + O = O
+#test
+fn test_bn254_g2_add1() {
+    let p: G2Point = G2Point(x: [0,0], y:[0,0]);
+    let q: G2Point = G2Point(x: [0,0], y:[0,0]);
+    
+    let res: G2Point = G2_add(p: p, q: q)
+    
+    assert res.x[0] == 0
+    assert res.x[1] == 0
+    assert res.y[0] == 0
+    assert res.y[1] == 0
+}
+
+// O + G = G
+#test
+fn test_bn254_g2_add2() {
+    let p: G2Point = G2Point(x: [0,0], y:[0,0])
+    let generator: G2Point = G2()
+    let res: G2Point = G2_add(p: p, q: generator)
+    
+    assert Fq_eq(x: res.x, y: generator.x)
+    assert Fq_eq(x: res.y, y: generator.y)
+}
+
+// G + (-G) = 0
+#test
+fn test_bn254_g2_add3() {
+    let generator: G2Point = G2()
+    let res: G2Point = G2_add(p: generator, q: G2_negate(p: generator))
+    
+    assert res.x[0] == 0
+    assert res.x[1] == 0
+    assert res.y[0] == 0
+    assert res.y[1] == 0
+}
+
+// G + G = 2*G
+#test
+fn test_g2_double() {
+    let generator: G2Point = G2()
+    let add_generators: G2Point = G2_add(p: generator, q: generator)
+    let double_generator: G2Point = G2_double(p: generator)
+
+    assert Fq_eq(x: add_generators.x, y: double_generator.x)
+    assert Fq_eq(x: add_generators.y, y: double_generator.y)
+    assert Fq_eq(x: add_generators.x, y: [14583779054894525174450323658765874724019480979794335525732096752006891875705,
+    18029695676650738226693292988307914797657423701064905010927197838374790804409])
+    assert Fq_eq(x: add_generators.y, y: [11474861747383700316476719153975578001603231366361248090558603872215261634898,
+    2140229616977736810657479771656733941598412651537078903776637920509952744750])
+}
+
+// 2*G + G = 3*G
+#test
+fn test_bn254_g2_mul1() {
+    let generator: G2Point = G2()
+    let two_generator: G2Point = G2_double(p: generator)
+    let lhs: G2Point = G2_add(p: generator, q: two_generator)
+    let rhs: G2Point = G2_scalar_mul(p: generator, r: 3)
+    
+    assert Fq_eq(x: lhs.x, y: rhs.x)
+    assert Fq_eq(x: lhs.y, y: rhs.y)
+    assert Fq_eq(x: lhs.x, y: [7273165102799931111715871471550377909735733521218303035754523677688038059653,
+    2725019753478801796453339367788033689375851816420509565303521482350756874229])
+    assert Fq_eq(x: lhs.x, y: [7273165102799931111715871471550377909735733521218303035754523677688038059653,
+    2725019753478801796453339367788033689375851816420509565303521482350756874229])
 }
