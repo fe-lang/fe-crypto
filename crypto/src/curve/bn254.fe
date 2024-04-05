@@ -26,6 +26,17 @@ pub fn Fp_times(x: u256, y: u256) -> u256 {
     return ((four_times + p*(four_times%4))/4)%p //works since p=3 (mod 4)
 }
 
+pub fn Fp_is_square(x: u256) -> bool {
+    let pm1div2: u256 = 10944121435919637611123202872628637544348155578648911831344518947322613104291
+    return Fp_exp(b: x, e: pm1div2) != 21888242871839275222246405745257275088696311157297823662689037894645226208582 //p-1
+}
+
+pub fn Fp_sqrt(x: u256) -> u256 {
+    assert Fp_is_square(x: x), "input not square"
+    let pp1div4: u256 = 5472060717959818805561601436314318772174077789324455915672259473661306552146
+    return Fp_exp(b: x, e: pp1div4)
+}
+
 pub fn Fq_eq(x: Array<u256, 2>, y: Array<u256, 2>) -> bool {
     let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
     return (x[0]%p == y[0]%p) and (x[1]%p == y[1]%p)
@@ -34,6 +45,11 @@ pub fn Fq_eq(x: Array<u256, 2>, y: Array<u256, 2>) -> bool {
 pub fn Fq_add(x: Array<u256, 2>, y: Array<u256, 2>) -> Array<u256, 2> {
     let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
     return [(x[0]%p + y[0]%p) % p, (x[1]%p + y[1]%p) % p]
+}
+
+pub fn Fq_neg(x: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    return [(p - x[0]%p) % p, (p - x[1]%p) % p]
 }
 
 pub fn Fq_sub(x: Array<u256, 2>, y: Array<u256, 2>) -> Array<u256, 2> {
@@ -64,6 +80,35 @@ pub fn Fq_inv(x: Array<u256, 2>) -> Array<u256, 2> {
     let inv_nm: u256 = Fp_exp(b: nm, e: p - 2)
     return [Fp_times(x: p - x[0]%p, y: inv_nm), Fp_times(x: x[1], y: inv_nm)]
 }
+
+pub fn Fq_inv0(x: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let nm: u256 = Fp_exp(b: x[0],e: 2) + Fp_exp(b: x[1],e: 2)
+    let inv_nm: u256 = Fp_exp(b: nm, e: p - 2)
+    return [Fp_times(x: p - x[0]%p, y: inv_nm), Fp_times(x: x[1], y: inv_nm)]
+}
+
+pub fn Fq_is_square(x: Array<u256, 2>) -> bool {
+    return Fp_is_square(x: Fp_exp(b: x[0],e: 2) + Fp_exp(b: x[1],e: 2))
+}
+
+pub fn Fq_sqrt(x: Array<u256, 2>) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let half: u256 = 10944121435919637611123202872628637544348155578648911831344518947322613104292
+    let mut sqrtnm: u256 = Fp_sqrt(x: Fp_exp(b: x[0],e: 2) + Fp_exp(b: x[1],e: 2))
+    if(not Fp_is_square(x: x[1]%p + sqrtnm)) {
+        sqrtnm = p - sqrtnm
+    }
+    let val: u256 = (x[1]%p + sqrtnm)%p
+    if(val != 0) {
+        let a: u256 = Fp_sqrt(x: Fp_times(x: val, y: half))
+        let b: u256 = Fp_times(x: x[0], y: Fp_exp(b: a + a, e: p - 2))
+        return [b,a]
+    }
+    let b: u256 = Fp_sqrt(x: p - x[1]%p)
+    return [b,0]
+}
+
 
 pub struct G1Point {
     pub x: u256
@@ -189,13 +234,126 @@ pub fn G2_scalar_mul(p: G2Point, r: u256) -> G2Point {
         }
         ind >>= 1
         if(ind == 0) {
-            break
+           break
         }
         q = G2_double(p: q)
     }
     return ans
 }
 
+pub fn expand_message_xmd(msg: MemoryBuffer, DST: MemoryBuffer, len_in_bytes: u256) -> MemoryBuffer {
+    let ell : u256 = (len_in_bytes + 31) / 32 // ceil
+    let rem : u256 = len_in_bytes - 32*(ell - 1)
+
+    let mut DST_prime : MemoryBuffer = MemoryBuffer::new(len: DST.len() + 1)
+    let mut DST_prime_writer : MemoryBufferWriter = DST_prime.writer()
+    DST_prime_writer.write_buf(buf: DST)
+    DST_prime_writer.write_n(value: DST.len(), len: 1)
+    
+    let mut msg_prime : MemoryBuffer = MemoryBuffer::new(len: msg.len() + DST_prime.len() + 67)
+    let mut msg_prime_writer : MemoryBufferWriter = msg_prime.writer()
+    msg_prime_writer.write(value: 0)
+    msg_prime_writer.write(value: 0) // 64 byte padding
+    msg_prime_writer.write_buf(buf: msg)
+    msg_prime_writer.write_n(value: len_in_bytes, len: 2)
+    msg_prime_writer.write_n(value: 0, len: 1)
+    msg_prime_writer.write_buf(buf: DST_prime)
+    let b0 : u256 = precompiles::sha2_256(buf : msg_prime)
+
+    let mut ans : MemoryBuffer = MemoryBuffer::new(len: len_in_bytes)
+    let mut ans_writer : MemoryBufferWriter = ans.writer()
+    
+    let mut b_buf : MemoryBuffer = MemoryBuffer::new(len: DST_prime.len() + 33)
+    let mut b_buf_writer : MemoryBufferWriter = b_buf.writer()
+    b_buf_writer.write(value: b0)
+    b_buf_writer.write_n(value: 1, len: 1)
+    b_buf_writer.write_buf(buf: DST_prime)
+    let mut b : u256 = precompiles::sha2_256(buf : b_buf)
+    
+    let mut i : u256 = 2
+    while(i <= ell) {
+        ans_writer.write(value: b)
+        
+        let mut bb_buf : MemoryBuffer = MemoryBuffer::new(len: DST_prime.len() + 33)
+        let mut bb_buf_writer : MemoryBufferWriter = bb_buf.writer()
+        bb_buf_writer.write(value: b0 ^ b)
+        bb_buf_writer.write_n(value: i, len: 1)
+        bb_buf_writer.write_buf(buf: DST_prime)
+        b = precompiles::sha2_256(buf : bb_buf)
+        
+        i += 1
+    }
+    ans_writer.write_n(value: b >> (32 - rem), len: rem)
+    return ans
+}
+
+pub fn hash_to_Fq(msg: MemoryBuffer, DST: MemoryBuffer) -> Array<u256, 2> {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let two_exp256: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let bytes : MemoryBuffer = expand_message_xmd(msg: msg, DST: DST, len_in_bytes: 96)
+    let mut reader: MemoryBufferReader = bytes.reader()
+    let high1: u128 = reader.read_u128()
+    let low1: u256 = reader.read_u256()
+    let high2: u128 = reader.read_u128()
+    let low2: u256 = reader.read_u256()
+    return [(Fp_times(x: high2, y: two_exp256) + low2%p)%p,
+            (Fp_times(x: high1, y: two_exp256) + low1%p)%p]
+}
+
+//doesn't reduce inputs mod p
+fn Fq_sgn0(val: Array<u256, 2>) -> bool {
+    let sgn0: bool = val[1]%2 != 0
+    let zero0: bool = val[1] == 0
+    let sgn1: bool = val[0]%2 != 0
+    return sgn0 or (zero0 and sgn1)
+}
+
+pub fn Fq_to_G2(u: Array<u256, 2>) -> G2Point {
+    let B: Array<u256, 2> = [266929791119991161246907387137283842545076965332900288569378510910307636690,
+    19485874751759354771024239261021720505790618469301721065564631296452457478373]
+    let gZ: Array<u256, 2> = [266929791119991161246907387137283842545076965332900288569378510910307636689,
+    19485874751759354771024239261021720505790618469301721065564631296452457478373]
+    let negZdiv2: Array<u256, 2> = [10944121435919637611123202872628637544348155578648911831344518947322613104291,0]
+    let tv: Array<u256, 2> = Fq_times(x: Fq_square(x: u), y: gZ)
+    let tv2: Array<u256, 2> = Fq_add(x: [0,1], y: tv)
+    let tv1: Array<u256, 2> = Fq_sub(x: [0,1], y: tv)
+    let tv3: Array<u256, 2> = Fq_inv0(x: Fq_times(x: tv1, y: tv2))
+    let tv4: Array<u256, 2> = [21087453498479301738505683583845423561061080261299122796980902361914303298516,
+7207104360239761353666499452706663748717078063988307791373219794578306190630]
+    let tv5: Array<u256,2> = Fq_times(x: u, y: Fq_times(x: tv1, y: Fq_times(x: tv3 , y: tv4)))
+    let tv6: Array<u256,2> = [355906388159988214995876516183045123393435953777200384759171347880410182252,
+    18685085378399381287283517099609868978155387573303020199856495763721534568303]
+    let x1: Array<u256,2> = Fq_sub(x: negZdiv2, y: tv5)
+    let x2: Array<u256,2> = Fq_add(x: negZdiv2, y: tv5)
+    let x3: Array<u256,2> = Fq_add(x: [1,0], y: Fq_times(x: tv6,
+                                y: Fq_square(x: Fq_times(x: Fq_square(x: tv2), y: tv3))))
+    let gx1: Array<u256,2> = Fq_add(x: Fq_times(x: Fq_square(x: x1), y: x1), y: B)
+    let gx2: Array<u256,2> = Fq_add(x: Fq_times(x: Fq_square(x: x2), y: x2), y: B)
+    let gx3: Array<u256,2> = Fq_add(x: Fq_times(x: Fq_square(x: x3), y: x3), y: B)
+    let mut x: Array<u256,2> = [0,0]
+    let mut y: Array<u256,2> = [0,0]
+    if(Fq_is_square(x: gx1)) {
+        x = x1
+        y = Fq_sqrt(x: gx1)
+    } else if(Fq_is_square(x: gx2)) {
+        x = x2
+        y = Fq_sqrt(x: gx2)
+    } else {
+        x = x3
+        y = Fq_sqrt(x: gx3)
+    }
+    if(Fq_sgn0(val: u) != Fq_sgn0(val: y)) {
+    y = Fq_neg(x: y)
+    }
+    let ans: G2Point = G2Point(x: x, y: y)
+    assert on_G2(p: ans)
+    let cofactor: u256 = 21888242871839275222246405745257275088844257914179612981679871602714643921549
+    return G2_scalar_mul(p: ans, r: cofactor)
+}
+
+pub fn hash_to_G2(msg: MemoryBuffer, DST: MemoryBuffer) -> G2Point {
+    return Fq_to_G2(u: hash_to_Fq(msg: msg, DST: DST))
+}
 
 // This function will improved after Dynamic Arrays
 pub fn pairing(buf: MemoryBuffer) -> bool {
@@ -276,11 +434,28 @@ fn test_Fp_times() {
 }
 
 #test
+fn test_Fp_sqrt() {
+    let x: u256 = 2
+    let sqrt: u256 = Fp_sqrt(x: x)
+    assert Fp_exp(b: sqrt, e: 2) == 2
+}
+
+#test
 fn test_Fq_square() {
     let x: Array<u256, 2> = G2().x
     let sq: Array<u256, 2> = Fq_square(x: x)
     assert sq[1] == 21740980388926906057426892996120422348616989628855161897682971020692097960281
     assert sq[0] == 1837384903404616869280368109057824469904033017901941306968221631236329083166
+}
+
+#test
+fn test_Fq_sqrt() {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let x: Array<u256, 2> = [1837384903404616869280368109057824469904033017901941306968221631236329083166,
+    21740980388926906057426892996120422348616989628855161897682971020692097960281]
+    let sqrt: Array<u256, 2> = Fq_sqrt(x: x)
+    assert sqrt[1] == p - G2().x[1]
+    assert sqrt[0] == p - G2().x[0]
 }
 
 #test
@@ -358,4 +533,13 @@ fn test_bn254_g2_mul1() {
     2725019753478801796453339367788033689375851816420509565303521482350756874229])
     assert Fq_eq(x: lhs.x, y: [7273165102799931111715871471550377909735733521218303035754523677688038059653,
     2725019753478801796453339367788033689375851816420509565303521482350756874229])
+}
+
+#test
+fn test_Fq_to_g2() {
+    Fq_to_G2(u: [0,1])
+    Fq_to_G2(u: [2,3])
+    Fq_to_G2(u: [4,5])
+    Fq_to_G2(u: [6,7])
+    Fq_to_G2(u: [0,0])
 }
