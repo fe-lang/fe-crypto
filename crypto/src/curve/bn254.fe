@@ -318,8 +318,8 @@ pub fn Fq_to_G2(u: Array<u256, 2>) -> G2Point {
     let tv2: Array<u256, 2> = Fq_add(x: [0,1], y: tv)
     let tv1: Array<u256, 2> = Fq_sub(x: [0,1], y: tv)
     let tv3: Array<u256, 2> = Fq_inv0(x: Fq_times(x: tv1, y: tv2))
-    let tv4: Array<u256, 2> = [21087453498479301738505683583845423561061080261299122796980902361914303298516,
-7207104360239761353666499452706663748717078063988307791373219794578306190630]
+    let tv4: Array<u256, 2> = [15403170217607925661891511707918230497750592932893890913125906786266381721360,
+    8270257801618377462829664163334948115088143961679076698731296916415895764198]
     let tv5: Array<u256,2> = Fq_times(x: u, y: Fq_times(x: tv1, y: Fq_times(x: tv3 , y: tv4)))
     let tv6: Array<u256,2> = [355906388159988214995876516183045123393435953777200384759171347880410182252,
     18685085378399381287283517099609868978155387573303020199856495763721534568303]
@@ -361,6 +361,57 @@ pub fn pairing(buf: MemoryBuffer) -> bool {
     let mut reader: MemoryBufferReader = output_buf.reader()
     precompiles::Precompile::EcPairing.call(input_buf: buf, output_buf: output_buf)
     return reader.read_u256() == 1
+}
+
+pub fn pairing2(a1: G1Point, a2: G2Point,
+                b1: G1Point, b2: G2Point) -> bool {
+
+    let input_len: u256 = 32 * 12 // all writers work now
+    let mut buf: MemoryBuffer = MemoryBuffer::new(len: input_len) 
+    let mut writer: MemoryBufferWriter = buf.writer()
+
+    writer.write(value: a1.x)
+    writer.write(value: a1.y)
+    writer.write(value: a2.x[0])
+    writer.write(value: a2.x[1])
+    writer.write(value: a2.y[0])
+    writer.write(value: a2.y[1])
+    writer.write(value: b1.x)
+    writer.write(value: b1.y)
+    writer.write(value: b2.x[0])
+    writer.write(value: b2.x[1])
+    writer.write(value: b2.y[0])
+    writer.write(value: b2.y[1])
+        
+    let res: bool = precompiles::ec_pairing(buf: buf)
+
+    return res
+}
+
+
+//WARNING: don't put private keys on the blockchain
+pub fn generate_priv_key(rnd_src: MemoryBuffer) -> u256 {
+    let p: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let two_exp256: u256 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    let mut reader: MemoryBufferReader = rnd_src.reader()
+    let high: u128 = reader.read_u128()
+    let low: u256 = reader.read_u256()
+    return(Fp_times(x: high, y: two_exp256) + low%p)%p
+}
+
+//WARNING: don't put private keys on the blockchain
+pub fn generate_pub_key(priv_key: u256) -> G1Point {
+    return scalar_mul(p: G1(), r: priv_key)
+}
+
+// WARNING: don't put private keys on the blockchain
+pub fn sign(priv_key: u256, msg: MemoryBuffer, DST: MemoryBuffer) -> G2Point {
+    return G2_scalar_mul(p: hash_to_G2(msg: msg, DST: DST), r: priv_key)
+}
+
+pub fn verify(pub_key: G1Point, signature: G2Point, msg: MemoryBuffer, DST: MemoryBuffer) -> bool {
+        return pairing2(a1: negate(p: G1()), a2: signature,
+                        b1: pub_key, b2: hash_to_G2(msg: msg, DST: DST))
 }
 
 // O + O = O
@@ -541,5 +592,28 @@ fn test_Fq_to_g2() {
     Fq_to_G2(u: [2,3])
     Fq_to_G2(u: [4,5])
     Fq_to_G2(u: [6,7])
+    Fq_to_G2(u: [8,9])
+    Fq_to_G2(u: [10,11])
+    Fq_to_G2(u: [12,13])
     Fq_to_G2(u: [0,0])
+}
+
+#test
+fn test_sign() {
+    let priv_key: u256 = 13958764668801190265554310723816298225651752288247597460990550719176869043521
+    let pub_key: G1Point = generate_pub_key(priv_key)
+    //since we aparently can't easily put strings into a MemoryBuffer
+    let mut msg: MemoryBuffer = MemoryBuffer::new(len: 3)
+    let mut msg_writer: MemoryBufferWriter = msg.writer()
+    msg_writer.write_n(value: 1,len: 1)
+    msg_writer.write_n(value: 2,len: 1)
+    msg_writer.write_n(value: 3,len: 1)
+    //let DST: MemoryBuffer = "bn254.fe 0.1"
+    let mut DST: MemoryBuffer = MemoryBuffer::new(len: 3)
+    let mut DST_writer: MemoryBufferWriter = msg.writer()
+    DST_writer.write_n(value: 4,len: 1)
+    DST_writer.write_n(value: 5,len: 1)
+    DST_writer.write_n(value: 6,len: 1)
+    let signature: G2Point = sign(priv_key, msg, DST)
+    assert verify(pub_key, signature, msg, DST)
 }
